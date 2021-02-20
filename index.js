@@ -1,23 +1,87 @@
 'use strict'
 const http = require('http')
+const https = require('https')
 const url = require('url')
-const port = process.env.PORT || 3000
+const fs = require('fs')
+const config = require('./config')
 
-const server = http.createServer((req, res) => {
+
+const unifiedServer = (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', 'https://hoppscotch.io')
-    res.setHeader('Access-Control-Allow-Methods', ['GET', 'POST'])
 
-    let buffer = '' 
+    const reqUrl = url.parse(req.url)
+    const path = reqUrl.pathname.replace(/^\/+|\/+$/g, '');
+    const {query} = reqUrl
+    const {method, headers} = req
+    
+    //parse payload
+    let payload = '' 
 
     req.on('data', chunk => {
-        buffer += chunk
+        payload += chunk
     })
+
+    //handle request
+    const data = {
+        path,
+        reqUrl,
+        method,
+        headers,
+        payload
+    }
+
+    const handler = handlers[path] || handlers.notFound
+ 
+    handler(data, function(statusCode = 200, payload = {}) {
+        const payloadStr = JSON.stringify(payload)
+
+        res.setHeader('Content-Type', 'application/json')    
+        res.writeHead(statusCode)
+
+        res.end(payloadStr) 
+    })
+
 
     req.on('end', chunk => {
-	console.log(buffer)
-	res.end('received request')
+        res.end('request received')
     })
+}
 
+//instantiate servers
+
+const httpServer = http.createServer((req, res) => {
+    unifiedServer(req, res)
 })
 
-server.listen(port, () => console.log(`Listening on port ${port}`)) 
+const httpsServerOptions = {
+    key: fs.readFileSync('./https/key.pen'),
+    cert: fs.readFileSync('./https/cert.pen'),
+}
+
+const httpsServer = https.createServer(httpsServerOptions, (req, res) => {
+    unifiedServer(req, res)
+})
+
+
+const handlers = {
+    notFound: (data, callback) => {
+        callback(404)
+    },
+    ping: (data, callback) => {
+        callback(200)
+    }
+}
+
+const router = {
+    ping: handlers.ping
+}
+
+//listeners
+
+httpServer.listen(config.httpPort, () => {
+    console.log(`Listening on port ${config.httpPort}`) 
+})
+
+httpsServer.listen(config.httpsPort, () => {
+    console.log(`Listening on port ${config.httpsPort}`) 
+})
